@@ -97,3 +97,23 @@ Split operator splits the incoming stream into multiple streams based on a condi
 2) Select elements from SplitStream
 
 Iterate operator : Output of any iteration should be fed back to the next iteration. Iterative stream accepts the output feedback to itself. Iterations can be done on special types of streams called output streams
+If condition hasn't met then keep on iterating and if it meets flush it to output stream
+
+-------------------------------------
+Windowing in streams:
+Windows split the data stream into buckets of finite size over which computations can be applied.OR windows are subsets of streams which are computed as individual units
+Predefined built in windows:
+1. Tumbling windows(time based) - constant time window. After one window is completed next window will start.
+2. Sliding windows(time based) - Here second window can overlap with first window. e.g say window is of 10 sec, 1st start at 0 sec then second starts at 5sec. This how much to overlap is defined by separate param
+
+Note: in above 2 windows, for keyed stream(i.e. grouped stream) use window() window assigner. Keyed stream windows can be processed in parallel, while for non keyed stream use windowAll() window assigner. We can have custom window assigners
+If flink is creating windows based on time,then what type of time it should consider e.g. processing time,ingestion time or event time is defined by TimeCharacteristic enum
+Event time is when event occured at source, ingestion time is when flink first knows about data, and processing time is when flink process data
+Processing time :Refers to system time of machine which execute task. Windows will use system clock of machine. Processing is simplest notion of time and requires no coordination between streams and machines. It gives best performance and low latency. But processing time can be different for different machines hence it doesn't provide determinism. So, is less suitable for distributed environment
+Event time: Event time is embedded within each record. It gives consistent and deterministic results regardless of order they arrive at flink. However ,it shows some latency while waiting out-of-order events e.g. say event window is set to 1 hour then each window will contain all records of that hour timestamp regardless of order they arrive
+Ingestion time: When event enters flink. Each record gets source's current timestamp. All time based operations refer to that timestamp. This uses stable timestamp. Can not handle out-of-order events or late data
+
+For good way to generate random live data on socket refer DataDriver for window event .
+
+3. Session windows
+4. Global windows

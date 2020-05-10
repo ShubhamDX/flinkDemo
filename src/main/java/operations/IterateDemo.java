@@ -11,14 +11,14 @@ public class IterateDemo {
     public static void main(String[] args) throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        DataStream<Tuple2<Long, Integer>> data = env.generateSequence(0, 5).map(new MapFunction<Long, Tuple2<Long, Integer>>() {
+        DataStream<Tuple2<Long, Integer>> data = env.generateSequence(0, 5).map(new MapFunction<Long, Tuple2<Long, Integer>>() { //env.generateSequence can also be considered as a datasource
             public Tuple2<Long, Integer> map(Long value) {
-                return new Tuple2<Long, Integer>(value, 0);
+                return new Tuple2<Long, Integer>(value, 0); //value,0 means value has gone under 0 iterations
             }
         });
 
         // prepare stream for iteration
-        IterativeStream<Tuple2<Long, Integer>> iteration = data.iterate(5000);   // ( 0,0   1,0  2,0  3,0   4,0  5,0 )
+        IterativeStream<Tuple2<Long, Integer>> iteration = data.iterate(5000);   // ( 0,0   1,0  2,0  3,0   4,0  5,0 ) It will wait for max 5 sec for feedback data. If it doesn't receive within this time job will terminate
 
         // define iteration
         DataStream<Tuple2<Long, Integer>> plusOne = iteration.map(new MapFunction<Tuple2<Long, Integer>, Tuple2<Long, Integer>>() {
@@ -40,7 +40,7 @@ public class IterateDemo {
             }
         });
         // feed data back to next iteration
-        iteration.closeWith(notEqualtoten);
+        iteration.closeWith(notEqualtoten); // data is fed back to iterative stream using this closeWith method
 
         // data not feedback to iteration
         DataStream<Tuple2<Long, Integer>> equaltoten = plusOne.filter(new FilterFunction<Tuple2<Long, Integer>>() {

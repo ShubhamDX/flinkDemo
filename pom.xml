@@ -40,7 +40,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>operations.SplitDemo</mainClass>
+                            <mainClass>windows.tumblingwindow.eventtime.TumblingEvent</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
