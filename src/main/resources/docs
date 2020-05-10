@@ -1,0 +1,99 @@
+Robust fault tolerance, application can restart from same point where it failed.
+
+Flink’s application state is rescalable, possible to add resources while app is running. Also maintains exactly once semantics I.e. means every record will be processed exactly once.
+
+
+
+In batch processing a set of data is collected over a period of time and then processed at a single shot while in stream processing data is fed to processing engine as soon as it is generated.
+
+Batch is used when access to all the data is required e.g. difference in sales after discount while stream is used to process real time data e.g. fraud detection, social media sentiment analysis.
+
+Batch job is run at regular interval or on demand with a bounded dataset while streaming job runs continuously whenever data is available with unbounded data.
+
+Batch job is more concerned about throughput(amount of data processed in a given time) than latency(amount of time taken to process a data) while opposite is in stream processing.
+
+
+
+Hadoop read and write every data on disk while spark/flink does in memory computation and doesn’t write intermediate data on disk rather stores in memory hence reducing read write cycles of disk.
+
+Hadoop does not support iterative processing(i.e. output of one operation is input to another). Although it provides iterative processing by chain mapper and chain reducers but is not efficient as each intermediate output has to be written/read on disk.
+
+Hadoop does not have any type of abstraction but spark have RDD and flink has dataflows
+
+
+
+Spark’s streaming computation model is based on microbatching. It divides stream of data into discrete chunks of data called micro batches. If we keep batch size very small then it will be near real time processing. So, spark is near real time processing. Flink’s streaming model is based on windowing and checkpointing . Flink is implemented in java and supports python,R,scala while spark was in Scala.
+
+
+
+Spark does not have efficient memory manager(frequently gets out of memory). User has to do custom settings hence in depth knowledge is required. Flink has it’s own efficient automatic memory manager(rarely gets out of memory).
+
+
+
+Spark uses DAG as it’s execution engine while flink uses controlled cyclic dependency as it’s execution engine.
+
+
+
+Flink ecosystem: Flink’s runtime (core engine). On top of engine abstractions are there: Dataset for batch processing and DataStream for stream processing. Datastream api is in java and Scala only
+
+
+
+After every operation flick creates intermediate data in the form of dataset or data stream. Dataset is immutable. If an operation has to be performed then it will apply on whole of dataset and not on a part of it.
+
+
+JoinHint.BROADCAST_HASH_FIRST : Since flink is a distributed processing engine means our data is distributed on various nodes in different networks.
+ When we are doing join then it is possible that the 2 datasets to be joined are present on different nodes. So, when we submit the join job it is possible that
+ matching keys for first dataset on node 1 are present in 2nd dataset at node 2. To do a join in this case, there would be a lot of shuffling of data between nodes
+ which is one of the costliest task in processing. Now say our first dataset is small, so let's broadcast this dataset to each node's internal memory . Hence, all
+ nodes can bypass the shuffling phase and access this dataset from it's own internal memory. Thus, it tremendously decreases join processing time. BROADCAST_HASH_FIRST
+ broadcasts first table. BROADCAST_HASH_SECOND broadcasts second table.
+
+ JoinHint.REPARTITION_HASH_FIRST : Creates a hash table from input dataset. Join is lookup operation where it has to look for the matching column values and hashtable is best
+ datastructure for looking up operations. This hint will partition each input dataset unless our input datasets are already partitioned and builds the hash table from the FIRST input.
+ This strategy is good when both inputs are large and first input is smaller than the second input. Similarly REPARTITION_HASH_SECOND. Note: Here both tables are being partitioned
+ if already not partitioned but hashtable is build for only one input.
+
+ JoinHint.REPARTITION_SORT_MERGE : In this hint, flink will do partitions of each input if not done already and then sorts each input dataset and then join is done on
+ each input(sorting boosts join performance). Note : sorting will take good amount of time so give hint if we already know that one input is already sorted
+-----------------------------------
+Data sources for data stream api:
+1. readTextFile(path) : reads line by line and returns them as strings
+2. readFile(fileInputFormat, path) : Read lines in the format as mentioned in the parameters. // fileInputFormat can be key-value input format, sequence file input format or our custom created input format
+3. readFile(fileInputFormat, path, watchType, interval, pathFilter) : Reads the file based on the provided fileInputFormat, watchtype and scans the file periodically
+for any new data in every (x) ms, where value of x is equal to interval value in milliseconds.
+watchType is of 2 types:
+a) FileProcessingMode.PROCESS_CONTINUOUSLY : the source is monitored periodically for new data in the specified path, period of which is decided by interval parameter. This is generally used if source is a file
+b) FileProcessingMode.PROCESS_ONCE : this will scan the path once, read the data, create a checkpoint and exits. It will never visit that checkpointed data again. Though readers will keep on reading the data from file until all the file contents are read. Also after first read,flink will also start a new transaction for any subsequent reads that belongs to the next checkpoint. It has drawbacks
+
+pathFilter : exclude some file from being processed in the given path
+
+Flink splits file reading into 2 parts:
+a) monitoring : Scan path based on watchType; divide the unread data into splits and assign splits to readers
+b) actual reading : Performed by multiple readers; Readers run parallelly ;Each split read by only 1 reader.
+
+4. socketTextStream : Reads data from a socket. Elements can be separated by a delimiter.
+
+5. addSource : To add a custom data Source outside of flink . e.g. kafka,flume,twitter api etc
+
+-------------------------------------
+
+Data sinks for Datastream api:
+Both dataset and datastream have similar sinks. Datastream has 2 extra sinks 1. addSinks 2.writeToSocket
+1. writeAsText()/ TextOutputFormat - writes output line wise, each line as a string
+2. writeAsCsv(path,lines delimiter, fields delimiter)/ CsvOutputFormat - Writes output as comma separated values. Row and field delimiters are configurable.
+3. print() - prints the output to console. Output is written as strings by internally calling toString() method.
+4. writeUsingOutputFormat() / FileOutputFormat - writes output as per the provided FileOutputFormat
+5. writeToSocket - Writes elements to a socket according to a SerializationSchema.
+6. addSink - to add a custom data Sink outside of flink . e.g. kafka,Flume etc using connectors.
+
+-----------------------------------------------
+
+to open a socket at 9999 : nc -l 9999. As long as this socket is open, job will keep on running. See the console output on ui localhost:8081
+
+Like a operations.reduce operation, there is a fold operation(deprecated). Difference is that unlike operations.reduce , fold allows different input and output types
+
+Split operator splits the incoming stream into multiple streams based on a condition. It works in 2 steps:
+1) Label elements based on a condition and store the labelled elements in SplitStream which is specialized kind of datastream that holds labelled elements
+2) Select elements from SplitStream
+
+Iterate operator : Output of any iteration should be fed back to the next iteration. Iterative stream accepts the output feedback to itself. Iterations can be done on special types of streams called output streams
