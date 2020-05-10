@@ -115,5 +115,9 @@ Ingestion time: When event enters flink. Each record gets source's current times
 
 For good way to generate random live data on socket refer DataDriver for window event .
 
-3. Session windows
-4. Global windows
+3. Session windows : Created based on activity. Does not have fixed start or endtime. It starts whenever input streams starts going in and stops when it stops receiving inputs for a pre defined period of time. e.g. user's bank activity.
+Here, say first data comes this it creates a new window. Now 2nd data comes and it is within the gap time then another window is created for this and this is merged with previous window.
+This goes on recursively until the threshold gap is encountered. This window requires merging trigger and merging window function like aggregates
+
+4. Global windows : There is only one window per key created . We don't do subdivisions here. The window will remain open until a trigger is encountered. Once a
+trigger is encountered then only the processing will start.

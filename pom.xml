@@ -40,7 +40,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>windows.tumblingwindow.eventtime.TumblingEvent</mainClass>
+                            <mainClass>windows.globalwindow.GlobalWindow</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
