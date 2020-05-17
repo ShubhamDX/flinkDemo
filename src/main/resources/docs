@@ -121,3 +121,177 @@ This goes on recursively until the threshold gap is encountered. This window req
 
 4. Global windows : There is only one window per key created . We don't do subdivisions here. The window will remain open until a trigger is encountered. Once a
 trigger is encountered then only the processing will start.
+
+-----------------------
+Triggers
+Trigger determines when a window is ready to be processed. All window assigners comes with default triggers.
+Trigger interface has 5 methods:
+1. onElement(T element,long timestamp,W window,TriggerContet ctx) : what we want to do on addition of an element in a window. e.g. say i want to count elements in a window then in this method increase the counter upon addition of every element
+2. onEventTime(long time,W window,TriggerContet ctx) : this is triggered when a registered event time timer is lapsed. time param is the time at which trigger fires
+3. onProcessingTime(long time,W window,TriggerContet ctx) : this is triggered when a registered processingtime timer fires.
+4. onMerge(W window,OnMergeContext ctx) : Since session windows are actually created by merging of small windows and it requires trigger for that. This method is relevant there. This method merges the states of 2 triggers when their corresponding windows merge.
+5. clear(W window, TriggerContext ctx) : We can write any action we want to perform upon removal of the corresponding window. window arg is the window which needs to be removed
+
+First 3 methods return TriggerResult and last 2 void.
+TriggerResult is one of the following:
+CONTINUE : Do nothing
+FIRE : Trigger the computation e.g. apply the operations like sum etc. This is signal for window operator to emit the result of current window. By default all the predefined triggers uses fire action for the window.
+PURGE : Clear contents of Window. It first clears the contents of window and then perform action
+FIRE_AND_PURGE : Trigger the computation and clear contents of Window after it.
+
+3 inbuilt triggers:
+1. EventTimeTrigger : This trigger fires based upon progress of event time. (.trigger(EventTimeTrigger.create())). It is default in event windows
+2. ProcessingTimeTrigger - this trigger fires based upon progress of processing time. (.trigger(ProcessingTimeTrigger.create()))
+3. CountTigger - This trigger fires when the number of elements in a winow exceeds the count specified in parameters. (.trigger(CountTrigger.of(5)))
+4. PurgingTrigger - This trigger takes another trigger as argument and purges it after the inner one fires. (.trigger(PurgingTrigger.of(CountTrigger.of(5))))
+
+Evictors for windows:
+It is optional.
+Evictor is used to remove elements from a window after the trigger fires and before and/or after the window function is applied
+evictBefore(...) : called before window function
+evictAfter(...) : called after window function
+
+3 built in evictors:
+1.CountEvictor : keeps the user-specified number of elements from the window and discards the remaining ones. .evictor(CountEvictor.of(3))
+2. Deltaevictor : takes a delta function and a threshold as arguments, computes a delta between the last element in the window and the remaining elements and then removes
+those elements whose delta is >= threshold. .evictor(DeltaEvictor.of(threshold,new MyDelta())) // threshold can be anything e.g. time, value based on data field
+3. TimeEvictor : takes argument as an interval in milliseconds and for a given window it finds the maximum timestamp max_ts amongst its elements and removes all
+those elements with timestamps smaller than (max_ts - interval). .evictor(TimeEvictor.of(Time.of(evictionSec,TimeUnit.SECONDS)))
+
+-----------------------------------------
+WaterMarks:
+Mechanism to measure progress of event time in Flink is called Watermarks.
+A watermark declares the amount of event time passed in the stream and the current window would not accept data with time stamp less the watermark timestamp.
+Watermarks are created after predefined interval of time and not immediately after every element enters the window
+ExecutionConfig.setAutoWatermarkInterval(...)
+- Late elements are the elements that arrive after the watermark has crossed the element's timestamp value
+
+LATE Elemnts & ALLOWED LATENESS:
+By default late elements are dropped . However ,flink allows to specify maximum allowed lateness for window operators. Allowed latenes is the time by which
+a element can be late before it is dropped. Therefore, elements with timestamp = (Watermark+allowed lateness) are still added in the window
+Default value of allowed lateness is 0.
+- Late elements may cause the window to fire again with updated results
+- Flink keeps a state of window until the allowed lateness time expires.
+Thus the output will contain multiple results for same computation .So , we have to deduplicate the results
+
+SIDE OUTPUT:
+The late elements which come even after allowed lateness are computed as side output
+Demo<T> result = input.keyBy().window().allowedLateness(time).sideOutputLateData(lateOutputTag).<windowed transformation>(<winow function>); Note: Emitting data
+-from side output is posible only from selected window functions: ProcessFunction, CoProcessFunction, ProcessWindowFunction, ProcessAllWindowFunction
+-From above code ; DataStream<T> lateStream = result.getSideOutput(lateOutputTag);
+
+Built-in watermark generators:
+1. .assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor <MyEvent>(Time.seconds(10))) // this is same as implemented in   WaterMarkDemo.java
+{
+public long extractTimestamp(MyEvent element){
+...
+}
+}
+
+2. .assignTimestampsAndWatermarks(new AscendingTimestampExtractor<MyEvent>(){ // here there is no concept of allowed lateness or late elements. Elements will arrive in ascending order. So, current timestamp will act as watermark
+
+<logic>
+})
+
+------------------------------------
+State and checkpointing :
+
+- important for fault tolerance
+- State is a snapshot of application(operators) at any particular time which remembers informaton about past inputs/events.
+State can be used in any of the following ways:
+-To search for certain event patterns happened so far.
+-To train a ML model over s stream of data points.
+-To manage historic data, it allows efficient access to past events.
+-To achieve fault-tolerance through checkpointing. A state helps in restarting the system from the failure point.
+-To rescale the jobs(i.e. to increase parallelism in a job)
+-To convert stateless transformations to stateful transformations.
+
+Stateless transformation - Current output is dependent on current input element and independent of previous input elements. So, here there is no need to accumulate any data. e.g. Map, FlatMap,Filter
+StateFul transformation - Current output is dependent on current input element and previous inputs. Need to accumulate previous inputs in form of state. e.g. Reduce,Sum, Aggregate
+
+By using state objects like ValueState, ReducingState and ListState we can maintain state of previous inputs in operations like Map etc
+
+- Fault-tolerance in Flink ensures that in case of failures the application state will be recovered fully and the application will be restarted exactly from the failure point.
+Checkpointing - To consistently draw snapshots of distributed data stream and corresponding operator state. Each drawn snapshot will hold a full application state till the checkpointed time.
+Snapshots/checkpoints are light weight and does not impact much on performance. After the snapshot is taken, it is save into a persistent storage(State backed) like hdfs
+
+What happens after a crash?
+1. Flink stops the dataflow.
+2. Takes the state from latest checkpoint. Checkpoint has 2 main things stored in it : a) datastream (data) and b) operator state
+According to the latest checkpointed state,input datastreams will be reset to the point specified in checkpoint and the operators are restarted again
+What will happen to data which was processed after checkpoint was created and flink crashed?
+Data stream source/ message queue broker should have the ability to rewind the data stream e.g. kafka
+
+Barrier snapshotting:
+In case of period snapshotting, the system used to stall and ingestion won't happened while checkpointing occurs. So, barrier snapshotting is used
+-Flink will take a snapshot/create a checkpoint based on Stream barriers. Stream barriers are core elements of Flink's distributed snapshotting. These barriers are
+injected into the datastream and they flow along with records as a part of datastream
+-Synchronous snapshot: Flink operators will stop processing new records while snapshot/checkpoint is being written. Thus,overall delay in processing
+-Asynchronous snapshot: Flink operators will not stop processing new records while snapshot/checkpoint is being written. To support async snapshotting, a flink application needs to follow these 2 things:
+a) Use a managed state(state managed by flink)
+b) Use a state backend that supports asynchronous snapshotting.
+- State backend determines how and where a checkpointed state is stored. Few of them are:
+a) Memory StateBackend : Stores the state's data internally as objects on Java Heap.
+b) FS StateBackend : Stores the state's data internally into specified filesystem . e.g. HDFS
+c) RocksDb StateBackend : Stores the in-flight data (temp data) in RocksDb database, Upon checkpointing the same database is written to FileSystem. e.g. HDFS
+
+Incremental Checkpointing:
+When the data size is TB or PB, then states are also in GBs and state checkpointing becomes slow nad huge.
+In incremental checkpointing, we do not write the full state for every checkpoint rather for consecutive states we will only save the 'Delta' (changes between 2 checkpoints)
+Disadvantages of synchronous snapshotting:
+ a)writing a huge state will increase the job processing time.
+ b) writing checkpoints with Gb's,Tb's of state very frequently to disk consumes disk space and degrades overall performance.
+
+ Incremental checkpoint is not enabled by default:
+ RocksDBStateBackend backend = new RocksDBStaetBackend(filebackend,true); // true param for enabling incremental checkpoint
+
+Types of States:
+a) Operator state: State is bound to 1 operator instance, 1 state per operator instance.For the sake of data locality, flink saves the state of the operator on the same machine that runs the task
+So, all instances will have their own local state
+b) Keyed state : 1 state per operator instance per key. (Consider it as operator state only that has been partitioned on basis of key)
+-States can exist in 2 forms:
+Managed state : Totally controlled by flink, saved in hashtables. e.g. ValueState, ReducingState,ListState
+Raw state: Controlled by operators itself, operators keep it in their own data structures. it is unidentified data for flink. managed states do better memory management and also flink will redistribute managed states in case of rescaling , so better to use managed states
+
+-Managed key state:
+e.g. ValueState,ListState,ReducingState,AggregatingState
+ValueState - maintains a single value in it. It's value can be updated and retrieved till the time state is cleared by us.
+
+-Managed Operator states:
+While KeyState was available to only those operations which were coming after keyBy, operator state is available to all operations. Operator state helps in rescaling of jobs.
+All the states maintained by different operator instances across the nodes will be redistributed to the new set of operator instances
+
+-To implement it:
+public class operatorStateDemo implements SinkFunction<>, CheckpointedFunction/ListCheckpointedFunction
+
+-2 types of redistribution schemes:
+Even split redistribution:
+Here say earlier 3 nodes were there so 3 lists states was stored in hdfs . Now 2 more nodes are added, so now total 5 nodes. The 3 stored lists would be evenly divided
+into 5 sub lists and each will be passed to one node
+
+-union redistribution:
+Here earlier lists are not sub listed rather every new opeartor instance will get complete full list of state elements.
+
+- Flink restart streategies:
+1. Fixed delay restart strategy : Flink attempts a given number of time t restart the job before it fails
+2. Failure rate restart strategy : Flink will keep on trying restarting till failure rate exceeds. failureRateRestart(failure rate, time interval for measuring failure rate, delay)
+3. No Restart Strategy : flink will not try to restart job
+4. Fallback Restart Strategy : The cluster defined restart strategy is used
+
+c) Broadcast State:
+Used in cases where some data is required to be broadcasted to all the running nodes and tasks in cluster. The broadcasted stream/state is saved locally on each machine
+and all tasks running on a machine will access it locally.
+
+d)Queryable State:
+can be implemented only on flink cluster and not on localhost (?)
+It is used to expose Flink's managed keyed state to the outside world and allows users to query that state from outside flink. e.g. A simple java program will
+access a Flink's program managed state(if set to Queryable state).
+-Architecture Components:
+ a) QueryableStateClient : Runs outside flink cluster and submits the user queries.
+ b) QueryableStateClientProxy : Runs inside the Flink cluster and is responsible for receiving the client's queries. It's intermediate between state client and state server
+ c) QueryableStateServer : Runs inside the flink cluster on each Taskmanager and is responsible for serving the locally stored state.
+
+ In case of managed key state every key will have it's own state.
+ Flow:
+ Client request for state of k1 key from proxy. Proxy fetches taskmanager for k1 key from Job manager. Job manager returns TaskManager T1 for k1 key to proxy.
+ proxy then queries state server running on T1 task manager for state of k1 key . Proxy then returns result back to client
